@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Meeva Voice Agent</title>
+    <title>Meeva Voice Agent - Test Harness</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -21,54 +21,128 @@
             font-size: 18px;
             cursor: pointer;
         }
+        #status, #test-results {
+            margin-top: 20px;
+            font-weight: bold;
+            color: red;
+        }
+        #test-results {
+            color: blue;
+        }
     </style>
 </head>
 <body>
     <h1>Meeva Voice Agent</h1>
     <textarea id="inputText" placeholder="Type something..."></textarea><br>
     <button onclick="startSpeech()">🔊 Speak</button>
+    <button onclick="runTests()">⚙️ Run Test Harness</button>
+
+    <p id="status"></p>  <!-- Live status updates -->
+    <p id="test-results"></p>  <!-- Test results will appear here -->
 
     <script>
         async function getOpenAIKey() {
-            // Cloudflare exposes the API key securely (you've verified this)
-            const response = await fetch('/get-key');
-            const { apiKey } = await response.json();
-            return apiKey;
+            try {
+                const response = await fetch('/get-key');
+                const data = await response.json();
+                if (!data.apiKey) throw new Error("API Key not received!");
+                return data.apiKey;
+            } catch (error) {
+                console.error("Error fetching API key:", error);
+                document.getElementById('status').innerText = "Error fetching API key.";
+                return null;
+            }
         }
 
         async function startSpeech() {
             const text = document.getElementById('inputText').value.trim();
-            if (!text) return alert("Please enter some text.");
+            const statusEl = document.getElementById('status');
+            if (!text) {
+                statusEl.innerText = "Please enter some text.";
+                return;
+            }
+
+            statusEl.innerText = "Connecting...";
 
             try {
                 const apiKey = await getOpenAIKey();
+                if (!apiKey) return;
 
-                // OpenAI Realtime API connection
-                const ws = new WebSocket('wss://api.openai.com/v1/realtime-tts');
+                console.log("Using API Key:", apiKey);
+
+                const ws = new WebSocket(`wss://api.openai.com/v1/audio/speech`);
 
                 ws.onopen = () => {
-                    console.log("Connected to OpenAI Realtime API");
+                    console.log("WebSocket Connected");
+                    statusEl.innerText = "Processing speech...";
                     ws.send(JSON.stringify({
                         model: "tts-1",
                         voice: "alloy",
                         input: text,
-                        apiKey: apiKey
+                        api_key: apiKey
                     }));
                 };
 
                 ws.onmessage = async (event) => {
+                    console.log("Received audio response");
+                    statusEl.innerText = "Playing audio...";
                     const audioBlob = new Blob([event.data], { type: 'audio/mpeg' });
                     const audioUrl = URL.createObjectURL(audioBlob);
                     const audio = new Audio(audioUrl);
                     audio.play();
+                    audio.onended = () => statusEl.innerText = "Done.";
                 };
 
-                ws.onerror = (error) => console.error("WebSocket Error:", error);
-                ws.onclose = () => console.log("Disconnected from OpenAI Realtime API");
+                ws.onerror = (error) => {
+                    console.error("WebSocket Error:", error);
+                    statusEl.innerText = "WebSocket error. Check console.";
+                };
+
+                ws.onclose = () => {
+                    console.log("WebSocket Disconnected");
+                };
 
             } catch (error) {
                 console.error("Error:", error);
-                alert("Failed to process speech.");
+                statusEl.innerText = "Failed to process speech.";
+            }
+        }
+
+        async function runTests() {
+            const testResultsEl = document.getElementById('test-results');
+            testResultsEl.innerText = "Running tests...";
+            try {
+                // Test 1: API Key Fetch Test
+                const apiKey = await getOpenAIKey();
+                if (!apiKey) {
+                    testResultsEl.innerText = "❌ API Key Fetch Failed!";
+                    return;
+                }
+                testResultsEl.innerText = "✅ API Key Successfully Retrieved!";
+
+                // Test 2: OpenAI API Validation
+                const testRequest = await fetch("https://api.openai.com/v1/audio/speech", {
+                    method: "POST",
+                    headers: {
+                        "Authorization": `Bearer ${apiKey}`,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        model: "tts-1",
+                        voice: "alloy",
+                        input: "Hello, this is a test speech synthesis."
+                    })
+                });
+
+                if (testRequest.status === 200) {
+                    testResultsEl.innerText += "\n✅ OpenAI API Access Verified!";
+                } else {
+                    testResultsEl.innerText += `\n❌ OpenAI API Request Failed! Status: ${testRequest.status}`;
+                    console.error("API Test Error:", await testRequest.json());
+                }
+            } catch (error) {
+                console.error("Test Harness Error:", error);
+                testResultsEl.innerText = "❌ Test Harness Failed! Check Console.";
             }
         }
     </script>
