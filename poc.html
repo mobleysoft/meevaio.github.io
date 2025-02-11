@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meeva Voice Agent</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            padding: 50px;
+        }
+        textarea {
+            width: 80%;
+            height: 100px;
+            margin-bottom: 20px;
+            font-size: 16px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 18px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>Meeva Voice Agent</h1>
+    <textarea id="inputText" placeholder="Type something..."></textarea><br>
+    <button onclick="startSpeech()">🔊 Speak</button>
+
+    <script>
+        async function getOpenAIKey() {
+            // Cloudflare exposes the API key securely (you've verified this)
+            const response = await fetch('/get-key');
+            const { apiKey } = await response.json();
+            return apiKey;
+        }
+
+        async function startSpeech() {
+            const text = document.getElementById('inputText').value.trim();
+            if (!text) return alert("Please enter some text.");
+
+            try {
+                const apiKey = await getOpenAIKey();
+
+                // OpenAI Realtime API connection
+                const ws = new WebSocket('wss://api.openai.com/v1/realtime-tts');
+
+                ws.onopen = () => {
+                    console.log("Connected to OpenAI Realtime API");
+                    ws.send(JSON.stringify({
+                        model: "tts-1",
+                        voice: "alloy",
+                        input: text,
+                        apiKey: apiKey
+                    }));
+                };
+
+                ws.onmessage = async (event) => {
+                    const audioBlob = new Blob([event.data], { type: 'audio/mpeg' });
+                    const audioUrl = URL.createObjectURL(audioBlob);
+                    const audio = new Audio(audioUrl);
+                    audio.play();
+                };
+
+                ws.onerror = (error) => console.error("WebSocket Error:", error);
+                ws.onclose = () => console.log("Disconnected from OpenAI Realtime API");
+
+            } catch (error) {
+                console.error("Error:", error);
+                alert("Failed to process speech.");
+            }
+        }
+    </script>
+</body>
+</html>
